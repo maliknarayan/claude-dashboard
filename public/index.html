@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claude Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h1><span class="logo">C</span> <span>Claude Dashboard</span></h1>
+        <p>Configuration & Launcher</p>
+      </div>
+      <div class="sidebar-search">
+        <input type="text" id="global-search" placeholder="Search everything..." spellcheck="false">
+      </div>
+      <div class="nav-item active" data-page="overview">
+        <span class="icon">&#9671;</span> <span>Overview</span>
+      </div>
+      <div class="nav-item" data-page="skills">
+        <span class="icon">&#9889;</span> <span>Skills</span>
+        <span class="badge" id="badge-skills">0</span>
+      </div>
+      <div class="nav-item" data-page="commands">
+        <span class="icon">&#9654;</span> <span>Commands</span>
+        <span class="badge" id="badge-commands">0</span>
+      </div>
+      <div class="nav-item" data-page="agents">
+        <span class="icon">&#9881;</span> <span>Agents</span>
+        <span class="badge" id="badge-agents">0</span>
+      </div>
+      <div class="nav-item" data-page="mcp">
+        <span class="icon">&#9729;</span> <span>MCP Servers</span>
+        <span class="badge" id="badge-mcp">0</span>
+      </div>
+      <div class="nav-item" data-page="running">
+        <span class="icon">&#9655;</span> <span>Running</span>
+        <span class="badge" id="badge-running">0</span>
+      </div>
+      <div class="nav-item" data-page="settings">
+        <span class="icon">&#9881;</span> <span>Settings</span>
+      </div>
+      <div class="nav-item" data-page="memories">
+        <span class="icon">&#9733;</span> <span>Memories</span>
+        <span class="badge" id="badge-memories">0</span>
+      </div>
+    </aside>
+
+    <!-- Main content -->
+    <main class="main" id="main-content"></main>
+  </div>
+
+  <!-- Launch Modal -->
+  <div class="modal-overlay" id="launch-modal">
+    <div class="modal">
+      <h2 id="modal-title">Launch</h2>
+      <p class="modal-desc" id="modal-desc"></p>
+      <label>Project Folder</label>
+      <div class="folder-picker">
+        <input type="text" id="modal-folder" placeholder="C:\path\to\project">
+        <button class="btn btn-secondary" id="modal-browse">Browse</button>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
+        <button class="btn btn-primary" id="modal-launch">Launch in PowerShell</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Memory Edit Modal -->
+  <div class="modal-overlay" id="memory-modal">
+    <div class="modal" style="width:600px">
+      <h2 id="mem-modal-title">Edit Memory</h2>
+      <p class="modal-desc" id="mem-modal-desc"></p>
+      <textarea id="mem-modal-editor" style="width:100%;min-height:300px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:16px;color:var(--text);font-family:var(--mono);font-size:13px;line-height:1.6;resize:vertical;margin-bottom:16px"></textarea>
+      <div class="modal-actions">
+        <button class="btn btn-danger" id="mem-modal-delete">Delete</button>
+        <span style="flex:1"></span>
+        <button class="btn btn-secondary" id="mem-modal-cancel">Cancel</button>
+        <button class="btn btn-primary" id="mem-modal-save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create Skill Modal -->
+  <div class="modal-overlay" id="create-skill-modal">
+    <div class="modal" style="width:600px">
+      <h2>Create New Skill</h2>
+      <p class="modal-desc">Define a new slash command skill</p>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Name <span class="required">*</span></label>
+          <input type="text" id="skill-name" placeholder="my-skill">
+        </div>
+        <div class="form-group">
+          <label>Description</label>
+          <input type="text" id="skill-desc" placeholder="What this skill does">
+        </div>
+        <div class="form-group">
+          <label>Allowed Tools</label>
+          <input type="text" id="skill-tools" placeholder="Read, Edit, Bash (comma separated)">
+        </div>
+        <div class="form-group">
+          <label>Argument Hint</label>
+          <input type="text" id="skill-hint" placeholder="e.g. <file-path>">
+        </div>
+      </div>
+      <label>Skill Body (Markdown)</label>
+      <textarea id="skill-body" class="create-body-editor" placeholder="# My Skill&#10;&#10;Instructions for Claude when this skill is invoked..."></textarea>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="create-skill-cancel">Cancel</button>
+        <button class="btn btn-primary" id="create-skill-save">Create Skill</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create Agent Modal -->
+  <div class="modal-overlay" id="create-agent-modal">
+    <div class="modal" style="width:600px">
+      <h2>Create New Agent</h2>
+      <p class="modal-desc">Define a new specialized agent</p>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Name <span class="required">*</span></label>
+          <input type="text" id="agent-name" placeholder="my-agent">
+        </div>
+        <div class="form-group">
+          <label>Model</label>
+          <select id="agent-model">
+            <option value="">Default (inherit)</option>
+            <option value="opus">Opus</option>
+            <option value="sonnet">Sonnet</option>
+            <option value="haiku">Haiku</option>
+          </select>
+        </div>
+        <div class="form-group full-width">
+          <label>Description</label>
+          <input type="text" id="agent-desc" placeholder="What this agent specializes in">
+        </div>
+      </div>
+      <label>Agent Body (Markdown)</label>
+      <textarea id="agent-body" class="create-body-editor" placeholder="# My Agent&#10;&#10;You are a specialized agent that..."></textarea>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="create-agent-cancel">Cancel</button>
+        <button class="btn btn-primary" id="create-agent-save">Create Agent</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
