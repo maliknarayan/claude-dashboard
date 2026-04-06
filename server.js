@@ -5,12 +5,26 @@ const { exec } = require('child_process');
 const os = require('os');
 
 const app = express();
-const PORT = 3456;
+const PORT = process.env.PORT || 3456;
 
 const CLAUDE_DIR = path.join(os.homedir(), '.claude');
+const IS_WIN = process.platform === 'win32';
+const IS_MAC = process.platform === 'darwin';
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// --- API: System Info ---
+
+app.get('/api/system', (req, res) => {
+  const claudeExists = fs.existsSync(CLAUDE_DIR);
+  res.json({
+    homeDir: os.homedir(),
+    platform: process.platform,
+    claudeDir: CLAUDE_DIR,
+    claudeExists,
+  });
+});
 
 // --- Helpers ---
 
@@ -41,19 +55,40 @@ function safeReadFile(filePath) {
 }
 
 function decodeProjectPath(encoded) {
-  return encoded.replace(/^[Cc]--/, '').replace(/--/g, '/').replace(/-/g, '\\');
+  // Claude encodes project paths: C--Users-Kilowott => C:\Users\Kilowott (Win) or /Users/Kilowott (Unix)
+  const decoded = encoded.replace(/--/g, '/').replace(/-/g, path.sep);
+  // On Windows, re-add drive letter colon: C\Users => C:\Users
+  if (IS_WIN && /^[A-Za-z]\\/.test(decoded)) {
+    return decoded[0] + ':' + decoded.slice(1);
+  }
+  // On Unix, paths start with / which gets encoded as leading separator
+  if (!IS_WIN && !decoded.startsWith('/')) {
+    return '/' + decoded;
+  }
+  return decoded;
 }
 
 // --- API: Running Sessions ---
 
 function getRunningPids() {
   return new Promise((resolve) => {
-    exec('tasklist /FI "IMAGENAME eq claude.exe" /NH', (err, stdout) => {
+    const cmd = IS_WIN
+      ? 'tasklist /FI "IMAGENAME eq claude.exe" /NH'
+      : 'ps aux | grep -i claude | grep -v grep';
+
+    exec(cmd, (err, stdout) => {
       if (err) return resolve([]);
       const pids = [];
       stdout.split(/\r?\n/).forEach(line => {
-        const match = line.match(/claude\.exe\s+(\d+)/i);
-        if (match) pids.push(parseInt(match[1]));
+        if (IS_WIN) {
+          const match = line.match(/claude\.exe\s+(\d+)/i);
+          if (match) pids.push(parseInt(match[1]));
+        } else {
+          const parts = line.trim().split(/\s+/);
+          if (parts.length >= 2 && /claude/.test(line)) {
+            pids.push(parseInt(parts[1]));
+          }
+        }
       });
       resolve(pids);
     });
@@ -409,10 +444,22 @@ app.post('/api/launch', (req, res) => {
     claudeCmd = 'claude';
   }
 
-  const dir = (directory || os.homedir()).replace(/\//g, '\\');
-  // Open cmd (faster than PowerShell), cd to dir, run claude
-  const cmdArgs = `/c start cmd /k "cd /d ${dir} && ${claudeCmd}"`;
-  exec(`cmd ${cmdArgs}`, (err) => {
+  const dir = directory || os.homedir();
+  let shellCmd;
+
+  if (IS_WIN) {
+    const winDir = dir.replace(/\//g, '\\');
+    shellCmd = `cmd /c start cmd /k "cd /d ${winDir} && ${claudeCmd}"`;
+  } else if (IS_MAC) {
+    // Open a new Terminal.app tab
+    const script = `tell application "Terminal" to do script "cd '${dir}' && ${claudeCmd}"`;
+    shellCmd = `osascript -e '${script}'`;
+  } else {
+    // Linux: try common terminal emulators
+    shellCmd = `x-terminal-emulator -e bash -c "cd '${dir}' && ${claudeCmd}; exec bash" 2>/dev/null || gnome-terminal -- bash -c "cd '${dir}' && ${claudeCmd}; exec bash" 2>/dev/null || xterm -e bash -c "cd '${dir}' && ${claudeCmd}; exec bash"`;
+  }
+
+  exec(shellCmd, (err) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json({ success: true });
   });
@@ -421,20 +468,33 @@ app.post('/api/launch', (req, res) => {
 // --- API: Browse folder ---
 
 app.post('/api/browse-folder', (req, res) => {
-  const psScript = `
-    Add-Type -AssemblyName System.Windows.Forms
-    $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-    $dialog.Description = "Select project folder"
-    $dialog.ShowNewFolderButton = $false
-    if ($dialog.ShowDialog() -eq 'OK') {
-      Write-Output $dialog.SelectedPath
-    }
-  `;
-  exec(`powershell -Command "${psScript.replace(/\r?\n/g, ' ').replace(/"/g, '\\"')}"`, (err, stdout) => {
-    if (err) return res.status(500).json({ error: err.message });
-    const folder = stdout.trim();
-    res.json({ folder: folder || null });
-  });
+  if (IS_WIN) {
+    const psScript = `
+      Add-Type -AssemblyName System.Windows.Forms
+      $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+      $dialog.Description = "Select project folder"
+      $dialog.ShowNewFolderButton = $false
+      if ($dialog.ShowDialog() -eq 'OK') {
+        Write-Output $dialog.SelectedPath
+      }
+    `;
+    exec(`powershell -Command "${psScript.replace(/\r?\n/g, ' ').replace(/"/g, '\\"')}"`, (err, stdout) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ folder: stdout.trim() || null });
+    });
+  } else if (IS_MAC) {
+    const script = 'osascript -e \'tell application "Finder" to set theFolder to POSIX path of (choose folder with prompt "Select project folder")\' 2>/dev/null';
+    exec(script, (err, stdout) => {
+      if (err) return res.json({ folder: null }); // User cancelled
+      res.json({ folder: stdout.trim() || null });
+    });
+  } else {
+    // Linux: try zenity, kdialog, or return null
+    exec('zenity --file-selection --directory --title="Select project folder" 2>/dev/null || kdialog --getexistingdirectory ~ 2>/dev/null', (err, stdout) => {
+      if (err) return res.json({ folder: null });
+      res.json({ folder: stdout.trim() || null });
+    });
+  }
 });
 
 app.listen(PORT, () => {

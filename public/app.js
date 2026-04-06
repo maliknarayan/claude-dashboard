@@ -12,6 +12,7 @@ let state = {
   settingsContent: {},
   searchQuery: '',
   pageFilter: '',
+  system: { homeDir: '', platform: 'win32', claudeExists: true },
 };
 
 let runningRefreshTimer = null;
@@ -23,7 +24,7 @@ async function api(url, opts) {
 }
 
 async function loadAll() {
-  const [skills, commands, agents, mcp, projects, memories, sessions] = await Promise.all([
+  const [skills, commands, agents, mcp, projects, memories, sessions, system] = await Promise.all([
     api('/api/skills'),
     api('/api/commands'),
     api('/api/agents'),
@@ -31,6 +32,7 @@ async function loadAll() {
     api('/api/projects'),
     api('/api/memories'),
     api('/api/sessions'),
+    api('/api/system'),
   ]);
   state.skills = skills;
   state.commands = commands;
@@ -39,6 +41,11 @@ async function loadAll() {
   state.projects = projects;
   state.memories = memories;
   state.sessions = sessions;
+  state.system = system;
+
+  if (!system.claudeExists) {
+    showToast('Claude Code config directory (~/.claude) not found. Install and run Claude Code first.', 'error');
+  }
 
   updateBadges();
 }
@@ -727,7 +734,7 @@ function openLaunchModal(type, name) {
   const typeLabel = { skill: 'Skill', command: 'Command', agent: 'Agent' };
   document.getElementById('modal-title').textContent = `Launch: /${name}`;
   document.getElementById('modal-desc').textContent = `Open a new terminal with this ${typeLabel[type] || type}`;
-  document.getElementById('modal-folder').value = 'C:\\Users\\Kilowott';
+  document.getElementById('modal-folder').value = state.system.homeDir || '';
   modal.classList.add('show');
 
   const cleanup = () => {
